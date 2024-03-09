@@ -5,6 +5,7 @@ import numpy.linalg as npl
 from numpy import log
 from random import randint
 from random import uniform
+from re import split
 import time
 
 
@@ -493,7 +494,7 @@ class SLAE:
         self.__vector = Matrix(rhs_vector) if type(rhs_vector) is Matrix \
             else Matrix.asVector(rhs_vector)
 
-    def richardsonSolve(self, tau, iterations_amt=100, threshold=1e-6):
+    def richardsonSolve(self, tau=None, iterations_amt=100, threshold=1e-6):
         """
             Solves SLAE Ax = f using Richardson's method
 
@@ -511,6 +512,12 @@ class SLAE:
         # symmetrize the SLAE
         self.__symmetrise()
 
+        if tau is None:
+            eigenvals = sorted(self.__matrix.getEigenvalues())
+
+            # get optimal tau
+            tau = 2 / (eigenvals[0] + eigenvals[-1])
+
         # get additional matrices and vectors
         identity = Matrix.getIdentity(width)
         tau_A = self.__matrix.scalarMultiply(tau)
@@ -521,7 +528,7 @@ class SLAE:
             return None
 
         # get initial guess
-        guessed_vector = Matrix.asVector([0] * width)
+        guessed_vector = Matrix.asVector([1] * width)
         residual = self.__vector - self.__matrix * guessed_vector
 
         residual_norms = [residual.norm()]
@@ -555,6 +562,20 @@ class SLAE:
         """
 
         return self.__matrix.conditionality()
+
+    def getMatrix(self):
+        """
+            Get SLAE's matrix
+        """
+
+        return deepcopy(self.__matrix)
+
+    def getVector(self):
+        """
+            Get SLAE's vector
+        """
+
+        return deepcopy(self.__vector)
 
     def __repr__(self):
         """
@@ -669,6 +690,114 @@ def testOptimalFromExact(size):
     return result, res_norms
 
 
+def testSimpleSLAE():
+    """
+        Test the program on simple SLAEs
+    """
+
+    simple_slaes = [
+        SLAE(
+            [
+                [5, -1, -1],
+                [1, 2, 3],
+                [4, 3, 2]
+            ],
+            [0, 14, 16]
+        ),
+        SLAE(
+            [
+                [3, 0.7, 0.2, 0.2],
+                [0.6, 5, 0.5, 0.5],
+                [1.3, 0.3, 3.5, 0.4],
+                [0.3, 0.3, 0.4, 4]
+            ],
+            [4, 5, -5, 5]
+        ),
+        SLAE(
+            [
+                [3.6, 1.8, -4.7],
+                [2.7, -3.6, 1.9],
+                [1.5, 4.5, 3.3]
+            ],
+            [-1.5, -1.2, -0.8]
+        )
+    ]
+
+    test_numbering = iter(range(1, len(simple_slaes) + 1))
+    for slae in simple_slaes:
+        print(f"<------- Test case #{next(test_numbering)} ------->")
+        print(slae)
+
+        result, _ = slae.richardsonSolve(threshold=1e-10)
+
+        print(f"result = \n{result}")
+        print("<---------------------------->\n\n")
+
+
+def testHardSLAE(file, test_log="", delta_vector=None, rhs_vector=None, conditionality=False):
+    """
+        Test hard SLAEs obtained from a file
+
+        :file: file where to find a SLAE
+        :test_log: logs to print
+        :delta_vector: right hand side vector delta
+        :conditionality: whether to print conditionality
+    """
+
+    with open(file, mode="r") as matrix_file:
+        matrix = []
+
+        # read file and extract data
+        while matrix_file:
+            # read line
+            line = matrix_file.readline()
+
+            # if we reached end of file
+            if line == "":
+                break
+
+            # extract data from line, ignore '\n' and other NaNs
+            matrix.append([float(item)
+                          for item in split("\s+", line)[:-1] if item])
+
+            # read additional "spacer" line
+            line = matrix_file.readline()
+
+        # if rhs_vector not provided make it randomly
+        if not rhs_vector:
+            rhs_vector = [randint(0, 10) for _ in range(len(matrix))]
+
+        # if delta vector is provided, add it to rhs vector
+        if delta_vector:
+            for i in range(len(matrix)):
+                rhs_vector[i] += delta_vector[i]
+
+        # construct a SLAE
+        hard_slae = SLAE(matrix, rhs_vector)
+
+        if test_log:
+            print(test_log)
+            print(hard_slae)
+
+        cond = 0
+        if conditionality:
+            cond = hard_slae.getMatrixCond()
+            print(f"Matrix conditionality = {cond}\n")
+
+        # get solution to the SLAE
+        result, _ = hard_slae.richardsonSolve()
+
+        if test_log:
+            print(f"result = \n{result}")
+            print("<==================================>")
+
+    # uncomment to see that the result is right
+    # print("Check result validity: (must be equal to rhs vector) \n")
+    # print(Matrix(matrix) * result)
+
+    return (result, rhs_vector, cond)
+
+
 def task_2_lab(size):
     _, rand_res_norms = testRandomTau(size)
     _, ofb_res_norms = testOptimalFromBounds(size)
@@ -696,4 +825,7 @@ def task_2_lab(size):
 
 
 if __name__ == "__main__":
+    # testSimpleSLAE()
+    # testHardSLAE("good_matrix18.txt",
+    #              test_log="<========= Hard SLAE ==========>")
     task_2_lab(100)
